@@ -1,172 +1,110 @@
-import os
+import sys
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import colorsys
 
 # ---------------------------------------------------------
-# יצירת תמונות בסיסיות
+# קבלת R,G,B משורת הפקודה
 # ---------------------------------------------------------
+R = int(sys.argv[1])
+G = int(sys.argv[2])
+B = int(sys.argv[3])
 
-def create_gradient_image(height, width):
-    img = np.zeros((height, width), dtype=np.uint8)
-    max_sum = (height - 1) + (width - 1)
-
-    for r in range(height):
-        for c in range(width):
-            value = (r + c) * 255 / max_sum
-            img[r, c] = int(value)
-
-    return img
-
-
-def create_circle_image(height, width, bg=128, fg=130):
-    img = np.full((height, width), fill_value=bg, dtype=np.uint8)
-    center = (width // 2, height // 2)
-    radius = min(height, width) // 4
-
-    cv2.circle(img, center, radius, fg, -1)
-    return img
-
+# נרמול ל-0..1 עבור חישובי HSV/HSL
+r = R / 255
+g = G / 255
+b = B / 255
 
 # ---------------------------------------------------------
-# ציור מלבן עם גרדיאנט
+# א. מימוש ידני של HSV
 # ---------------------------------------------------------
+Cmax = max(r, g, b)
+Cmin = min(r, g, b)
+delta = Cmax - Cmin
 
-def draw_gradient_rect(img, rect, col1, col2):
-    (r0, c0), (r1, c1) = rect
-    height, width = img.shape[:2]
+# Hue
+if delta == 0:
+    H = 0
+elif Cmax == r:
+    H = 60 * (((g - b) / delta) % 6)
+elif Cmax == g:
+    H = 60 * (((b - r) / delta) + 2)
+else:
+    H = 60 * (((r - g) / delta) + 4)
 
-    r0 = max(0, r0)
-    c0 = max(0, c0)
-    r1 = min(height, r1)
-    c1 = min(width, c1)
+# Saturation
+S = 0 if Cmax == 0 else delta / Cmax
 
-    is_color = img.ndim == 3
+# Value
+V = Cmax
 
-    if is_color:
-        col1 = np.array(col1, dtype=np.float32)
-        col2 = np.array(col2, dtype=np.float32)
-    else:
-        col1 = float(col1)
-        col2 = float(col2)
-
-    h = r1 - r0
-    w = c1 - c0
-
-    for rr in range(r0, r1):
-        for cc in range(c0, c1):
-            t = ((rr - r0) / max(h - 1, 1) + (cc - c0) / max(w - 1, 1)) / 2
-            val = (1 - t) * col1 + t * col2
-            img[rr, cc] = np.clip(val, 0, 255).astype(np.uint8)
-
-
-def create_multimodal_hist_image(specs, height, width, color=False):
-    if color:
-        img = np.zeros((height, width, 3), dtype=np.uint8)
-    else:
-        img = np.zeros((height, width), dtype=np.uint8)
-
-    for spec in specs:
-        draw_gradient_rect(img, spec['rect'], spec['colors'][0], spec['colors'][1])
-
-    return img
-
+print("\n--- HSV (manual) ---")
+print("H =", H)
+print("S =", S)
+print("V =", V)
 
 # ---------------------------------------------------------
-# Equalization functions
+# ב. HSV בעזרת cv2
 # ---------------------------------------------------------
+rgb = np.uint8([[[R, G, B]]])
+hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[0][0]
 
-def equalize_per_channel_rgb(img_rgb):
-    out = img_rgb.copy()
-    for ch in range(3):
-        out[..., ch] = cv2.equalizeHist(out[..., ch])
-    return out
-
-
-def equalize_value_channel_hsv(img_rgb):
-    hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
-    hsv[..., 2] = cv2.equalizeHist(hsv[..., 2])
-    return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
-
-
-def equalize_luminance_ycrcb(img_rgb):
-    ycrcb = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2YCrCb)
-    ycrcb[..., 0] = cv2.equalizeHist(ycrcb[..., 0])
-    return cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2RGB)
-
+print("\n--- HSV (cv2) ---")
+print("H =", hsv[0] * 2)     # OpenCV stores H in [0..180]
+print("S =", hsv[1] / 255)
+print("V =", hsv[2] / 255)
 
 # ---------------------------------------------------------
-# MAIN
+# א. מימוש ידני של HSL
 # ---------------------------------------------------------
+L = (Cmax + Cmin) / 2
+if delta == 0:
+    S_L = 0
+else:
+    S_L = delta / (1 - abs(2 * L - 1))
 
-if __name__ == "__main__":
-    height = 400
-    width = 500
+print("\n--- HSL (manual) ---")
+print("H =", H)
+print("S =", S_L)
+print("L =", L)
 
-    # --- יצירת תמונות בסיס ---
-    gradient_image = create_gradient_image(height, width)
-    circle_image = create_circle_image(height, width)
+# ---------------------------------------------------------
+# ב. HSL בעזרת colorsys
+# ---------------------------------------------------------
+h2, l2, s2 = colorsys.rgb_to_hls(r, g, b)
 
-    # --- הצגת gradient + circle ---
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    axes[0].imshow(gradient_image, cmap='gray')
-    axes[0].set_title("Gradient Image")
-    axes[0].axis('off')
+print("\n--- HSL (colorsys) ---")
+print("H =", h2 * 360)
+print("S =", s2)
+print("L =", l2)
 
-    axes[1].imshow(circle_image, cmap='gray')
-    axes[1].set_title("Low Contrast Circle")
-    axes[1].axis('off')
+# ---------------------------------------------------------
+# א. מימוש ידני של YCrCb
+# ---------------------------------------------------------
+Y  = 0.299 * R + 0.587 * G + 0.114 * B
+Cb = 128 - 0.168736 * R - 0.331264 * G + 0.5 * B
+Cr = 128 + 0.5 * R - 0.418688 * G - 0.081312 * B
 
-    plt.show()
+print("\n--- YCrCb (manual) ---")
+print("Y  =", Y)
+print("Cb =", Cb)
+print("Cr =", Cr)
 
-    # --- יצירת תמונת היסטוגרמה ---
-    specs = [
-        {'rect': ((0, 0), (height, width)), 'colors': (50, 60)},
-        {'rect': ((30, 30), (220, 200)), 'colors': (70, 80)},
-        {'rect': ((100, 300), (360, 480)), 'colors': (180, 185)},
-        {'rect': ((150, 340), (260, 430)), 'colors': (195, 200)},
-    ]
+# ---------------------------------------------------------
+# ב. YCrCb בעזרת cv2
+# ---------------------------------------------------------
+ycrcb = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb)[0][0]
 
-    hist_img = create_multimodal_hist_image(specs, height, width)
+print("\n--- YCrCb (cv2) ---")
+print("Y  =", ycrcb[0])
+print("Cr =", ycrcb[1])
+print("Cb =", ycrcb[2])
 
-    plt.figure(figsize=(6, 6))
-    plt.imshow(hist_img, cmap='gray')
-    plt.title("Multimodal Histogram Image")
-    plt.axis('off')
-    plt.show()
-
-    # --- תמונת צבע ---
-    color_specs = [
-        {'rect': ((0, 0), (height, width)), 'colors': ((50, 20, 30), (55, 40, 35))},
-        {'rect': ((30, 30), (220, 200)), 'colors': ((70, 10, 20), (80, 40, 30))},
-        {'rect': ((100, 300), (360, 480)), 'colors': ((180, 120, 130), (185, 140, 135))},
-        {'rect': ((150, 340), (260, 430)), 'colors': ((195, 150, 160), (200, 155, 165))},
-    ]
-
-    color_img = create_multimodal_hist_image(color_specs, height, width, color=True)
-
-    # Equalization
-    eq_rgb = equalize_per_channel_rgb(color_img)
-    eq_hsv = equalize_value_channel_hsv(color_img)
-    eq_y = equalize_luminance_ycrcb(color_img)
-
-    # --- הצגת כל תמונות הצבע ---
-    fig, axes = plt.subplots(1, 4, figsize=(18, 6))
-
-    axes[0].imshow(color_img)
-    axes[0].set_title("Original RGB")
-    axes[0].axis('off')
-
-    axes[1].imshow(eq_rgb)
-    axes[1].set_title("Equalized per RGB Channel")
-    axes[1].axis('off')
-
-    axes[2].imshow(eq_hsv)
-    axes[2].set_title("Equalized HSV (V channel)")
-    axes[2].axis('off')
-
-    axes[3].imshow(eq_y)
-    axes[3].set_title("Equalized YCrCb (Y channel)")
-    axes[3].axis('off')
-
-    plt.show()
+# ---------------------------------------------------------
+# הצגת צבע המקור (לא חובה אבל לפי ההוראות משתמשים ב-matplotlib)
+# ---------------------------------------------------------
+plt.imshow([[ [R/255, G/255, B/255] ]])
+plt.title("Input RGB Color")
+plt.axis('off')
+plt.show()
